@@ -1,0 +1,17 @@
+rm(list=ls())
+
+# Import libraries
+library(tidyverse)
+library(lspline)
+library(cowplot)
+library(boot)
+library(estimatr)
+library(huxtable)
+library(stargazer)
+library(modelsummary)
+install.packages("lspline")
+install.packages("cowplot")
+install.packages("estimatr")
+install.packages("huxtable")
+install.packages("stargazer")
+getwd()
