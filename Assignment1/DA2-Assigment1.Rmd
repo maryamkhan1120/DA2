@@ -1,0 +1,243 @@
+---
+output: 
+  pdf_document:
+    extra_dependencies: ["flafter"]
+---
+## Maryam Khan & Khawaja Abbas
+
+### Overview
+
+The purpose of this assignment is to analyze the unconditional gender wage gap between males and females for the occupation “Financial Analyst (0840)” and further analyze how the conditional gender wage gap varies with the level of education.
+The data used in this project is the Current Population Survey (CPS) by the Bureau of Labor Statistics.
+
+### Data cleaning:
+
+To make sure our analysis is more accurate we filtered and cleaned the data by calculating wage per hour by dividing the number of hours worked per week and the weekly wage. We also created a female binary variable where 1 stands for female and 0 stands for male. To conduct further analysis based on levels of education we also created binary variables for all levels of education.
+
+### Analysis:
+
+To examine the distribution of the wage data for the selected occupation, we made the density plot of the wage and log wage. According to the density plots the distribution of wage (level-level) is close to normal and the log transformation of wage causes the distribution to become skewed to the left. Therefore, we decided to run our regressions on a level-level model instead of using the log transformation. 
+
+#### Unconditional gender gap:
+
+To compare both models we ran regressions with the female binary variable for both wage and log wage and the result for the wage (level) regression was more statistically significant, hence, it made sense to go with the level-level regression.
+
+log(wage) = 3.4093*** - 0.1202female
+
+wage = 37.3321*** - 5.2147**female
+
+According to the results of our regressions, we can say with 95% confidence that there exists an unconditional gender gap between male and female. Females that are financial analysts tend to earn 5.2147 USD less than males and males earn 37.33 USD per hour.
+
+#### Conditional gender gap with different levels of education:
+
+In order to get a deeper understanding of how the gender wage gap changes with the level of education we ran regressions with levels of education above Associate level education grade where Associate was used as the base. A multi-variable regression was run and the female variable coefficient -5.5335 was statistically significant at the 1% level. It was also evident from the results that the wage increases as the level of education increases for Masters, Professional and PhD. However, there is no significant relation between bachelors and associate degrees. 
+To further analyze, the wage difference between male and females for different education levels we ran a regression with interaction variables, even though the female coefficient was statistically significant most of the interaction variables showed no significance with very high standard errors. However, it was interesting that the female PhD interaction variable was significant at 95% confidence interval with a positive coefficient. Meaning that females with PhD degrees earn 20.99 dollars more than their male counterparts in this occupation. 
+In conclusion, the multi-variable regression model’s coefficients were more statistically significant as compared to the multi-variable regression model with interaction terms. Another point to note is that the standard errors of the multi-variable regression were significantly lower than the multi-variable regression with interaction terms.
+
+# Appendix
+
+
+
+
+
+```{r include=FALSE}
+rm(list=ls())
+
+# Import libraries
+library(tidyverse)
+library(lspline)
+library(cowplot)
+library(boot)
+library(estimatr)
+library(huxtable)
+library(stargazer)
+library(modelsummary)
+library(kableExtra)
+library(dplyr)
+library(data.table)
+#install.packages("data.table")
+#install.packages("kableExtra")
+getwd()
+```
+
+```{r include=FALSE}
+
+#import data 
+data_all <- read_csv(paste0("/Users/maryamkhan/Data_Analysis2/morg-2014-emp.csv"), 
+                     col_types = cols(.default = "?", 
+                                      state = "c"))
+
+```
+
+
+
+```{r include=FALSE, warning=FALSE}
+
+
+
+
+#SELECT OCCUPATION
+# keep only financial analyst
+data <- data_all %>% filter(occ2012==0840)
+
+
+
+#gen female variable
+#gen wage variables
+data <- data %>% mutate(female=as.numeric(sex==2)) %>%
+  mutate(w=earnwke/uhours) %>%
+  mutate(lnw=log(w))
+
+
+
+
+write_csv(data,paste("/Users/maryamkhan/Data_Analysis2/","earnings_inference.csv",sep=""))
+
+fdata <- data %>% filter(grade92 >= 42)
+
+cps <- fdata %>% mutate(ed_Associate=as.numeric(grade92==42),
+                      ed_Bachelor=as.numeric(grade92==43),
+  ed_MA=as.numeric(grade92==44),
+                      ed_Profess = as.numeric(grade92==45),
+                      ed_PhD = as.numeric(grade92==46)
+)
+fdata <- data.table(fdata)
+fdata$gender <- as.numeric(fdata$sex)
+fdata$gender[fdata$gender==1] <- "Male"
+fdata$gender[fdata$gender==2] <- "Female"
+fdata$gender <- as.character(fdata$gender)
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+fdata[, .N, by = fdata$gender] %>% kbl(caption = "")  %>% kable_classic(full_width=F)
+```
+
+
+
+Summary showing difference in wage and log wage
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+P95 <- function(x){ quantile(x,.95,na.rm=T)}
+datasummary(w + lnw ~ Mean + SD + Min + Max + Median + P95 + N, data = fdata, title = "Stats for wage and log wage", )
+```
+
+
+
+```{r echo=FALSE, fig.width=3, fig.height=3, warning=FALSE, message=FALSE}
+ggplot(data = fdata, aes(x=w))+
+  geom_density() +
+  ggtitle("wage distribution")
+
+ggplot(data = fdata, aes(x=lnw))+
+  geom_density()+
+  ggtitle("log wage distribution")
+```
+
+
+
+Regression with wage and female 
+```{r echo=FALSE, warning=FALSE, warning=FALSE, message=FALSE}
+##############################
+# regressions
+##############################
+
+
+reg1<-lm(w~female,fdata) 
+
+reg2 <- lm(lnw~female,fdata)
+
+
+
+msummary(list("Log Wage" = reg1, "Wage" = reg2),
+         fmt="%.4f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC|R2 Pseudo|R2 Within',
+         stars=c('**' = .05, '***' = .01),
+         title = "Unconditional Regression"
+)
+
+```
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+reg1 <- lm_robust(w ~ female, data=cps,se_type = "HC1")
+reg3 <- lm_robust(w ~ female + ed_Bachelor + ed_MA + ed_Profess + ed_PhD, data=cps, se_type = "HC1")
+reg4 <- lm_robust(w ~ female + ed_Bachelor + ed_MA + ed_Profess + ed_PhD + ed_Bachelor*female + ed_MA*female + ed_Profess*female + ed_PhD*female, data=cps, se_type = "HC1")
+
+
+#huxreg(reg1, reg3, reg4, statistics = c(N = "nobs", R2 = "r.squared"))
+```
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+msummary(list("Wage gender" = reg1, "Wage (edu)" = reg3, "Wage (edu*female)"=reg4),
+         fmt="%.4f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC|R2 Pseudo|R2 Within',
+         stars=c('*' = .1,'**' = .05,'***' = .01, '****' = .001),
+         title = "Conditonal Regression"
+)
+```
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+data_m <- cps %>% filter(female==0)
+
+data_f <- cps %>% filter(female==1)
+
+reg5 <- lm_robust(w ~   ed_Bachelor +ed_MA + ed_Profess + ed_PhD, data=data_f, se_type = "HC1")
+
+reg6 <- lm_robust(w ~  ed_Bachelor +ed_MA+ ed_Profess + ed_PhD, data = data_m, se_type = "HC1")
+
+reg7 <- lm_robust(w ~ female + + female*ed_Bachelor + female*ed_MA + female*ed_Profess + female*ed_PhD, data=cps, se_type = "HC1")
+```
+ 
+ 
+ 
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+msummary(list("Women (log Wage)" = reg5, "Men (log Wage)" = reg6, "All (log Wage)" = reg7),
+         fmt="%.4f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC|R2 Pseudo|R2 Within|Std.Errors',
+         stars=c('*' = .05, '**' = .01),
+         title = "Table : 5"
+         )
+```
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+ggplot(data = fdata, aes(x = grade92, y = lnw)) +
+  geom_point() + 
+  geom_smooth(method="loess") +
+  scale_x_continuous(expand=c(0.01, 0.01), limits = c(41.5, 46.5),   breaks=seq(38, 65,   by=1)) + 
+  scale_y_continuous(expand=c(0.01, 0.01),limits = c(1.5, 4.5), breaks=seq(1.5, 4.5, by=0.50)) +
+  labs(x = "Education",y = "ln(earnings per hour)")+
+  ggtitle("Loess non-parametric regression")
+
+
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+
+ggplot(data = fdata, aes(x = grade92, y = lnw)) +
+  geom_point() + 
+  geom_smooth(method="lm") +
+  scale_x_continuous(expand=c(0.01, 0.01), limits = c(41.5, 46.5),   breaks=seq(38, 65,   by=1)) + 
+  scale_y_continuous(expand=c(0.01, 0.01),limits = c(1.5, 4.5), breaks=seq(1.5, 4.5, by=0.50)) +
+  labs(x = "Education",y = "ln(earnings per hour)")
+```
+
+
+
+
