@@ -4,9 +4,10 @@ author: "Khawaja Hassan & Maryam Khan"
 output: pdf_document
 ---
 
-```{r include=FALSE}
+```{r setup, include=FALSE}
 # CLEAR MEMORY
 rm(list=ls())
+
 # Import libraries
 library(tidyverse)
 library(haven)
@@ -15,133 +16,152 @@ library(rms)
 library(lspline)
 library(huxtable)
 library(modelsummary)
-install.packages("pscl")
 library(pscl)
+library(mfx)
+library(kableExtra)
+library(lspline)
+
+getwd()
 ```
 
-```{r include=FALSE}
+
+## Overview:
+
+The purpose of this assignment is to analyze how highly-rated variable was associated with other hotel features.We created a binary variable for highly rated based on user rating >= 4 as 1 and lesser than that as 0. Moreover, we based our regression model on hotels in Lisbon and used independent variables like stars and distance. Lastly the data set used in this project is Hotels Europe pricing and feature from OSF project repository.
+
+## Data filtering & Lspline
+To make sure our analysis more associative to the variables we filtered and cleaned the data by removing any observation where star and distance were null. Moreover,to further narrow down our analysis we filtered our data on year 2018 and months greater than 4. To started of with our regression model first we run simple linear regression to estimate if we needed to incorporate spline in our independent variable. For stars and distance we added spline based on the significant changes in our regression curve.
+The data summary for this filtered data and the regression curves are mentioned in the appendix.
+
+
+## Estimated Models:
+ Initially when we run our LPM our maximum and minimum probability was within the given range of 0-1. However, we know that it is possible if we add more observation it might exceed the given range. Therefore, we decided to run logit & probit regression along with average marginal effect to comprehend not only the likelihood but also the magnitude of the coefficients.
+
+# Interpretations:
+
+
+
+
+```{r, include=FALSE}
 # Loading the data
-# Get the dataset: now we use all the observations from Europe:
 hotels_europe_price <- read_csv("https://osf.io/p6tyr/download")
 hotels_europe_features <- read_csv("https://osf.io/utwjs/download")
 ```
 
-```{r include=FALSE}
+
+```{r, include=FALSE}
 # Joining Price and Features
 # Join them by hotel_id
-data <- left_join(hotels_europe_price, hotels_europe_features, by = "hotel_id")
+data <- left_join(hotels_europe_features, hotels_europe_price, by = "hotel_id")
 rm(hotels_europe_price,hotels_europe_features)
 ```
 
-```{r include=FALSE}
+
+```{r, include=FALSE}
 # Selecting a City
 data <- data %>% filter(city_actual=="Lisbon")
 #unique(data$accommodation_type)
 data <- data[data$accommodation_type=="Hotel",]
-
-
-data <-data %>% filter(price<=600) %>% filter(!is.na(stars)) %>% filter(!is.na(distance)) %>% filter(!is.na(rating))
-
-# LOG transformation of Price
-data$lnprice <- log(data$price)
+# filtering data by year and months
+data <-data %>% filter(price<=600) %>% filter(!is.na(stars)) %>% filter(!is.na(distance))%>%
+filter(!is.na(rating)) %>% filter(year== 2018) %>% filter(month >=4)
+# creating highly rated variable
 data$highly_rated <- ifelse(data$rating>=4, 1, 0)
-
-#data$distance2 <- ifelse(data$distance<=2, 1, 0)
-# check for duplicates
 ```
 
-- Filtered the data for **Paris**
-- Selected Hotels and Apartments for accommodation type
-- Price is less than _*600*_
-- Removed null values from _stars_
-- Removed duplicates
-- Removed Null values from _rating_, _stars_, and _distance_
-- Created log of price, _lnprice_
-- Created _highly_rated_ if rating >= 4
-- Distance is with in 2 miles
-
-```{r echo=FALSE}
-# 2) Quick reminder: check the descriptives + association
-# Summary statistics on price and log of price
+# Exhibit 1
+```{r, echo=FALSE}
+# Summary statistics on highly rated & stars
 P95 <- function(x){ quantile(x,.95,na.rm=T)}
-datasummary( highly_rated + distance + stars ~ Mean + SD + Min + Max + Median + P95 + N , data = data )
+ex1 <- datasummary( highly_rated + distance + stars ~ mean + SD + Min + Max + Median + P95 + N , data = data , title = "Data Summary Table" ) %>%
+  kableExtra::kable_styling(latex_options = "hold_position")
+ex1
 ```
 
-```{r include=FALSE}
-# lpm (repeating the previous regression)
-ggplot(data= data, aes(y=highly_rated,x= stars))+ geom_smooth(method = "loess", formula = y~x)
-lpm <-lm(highly_rated ~ lspline(stars, c(4)) + distance, data=data)
+# Exhibit 2
+
+```{r, echo=FALSE, warning=FALSE, figures-side, fig.show="hold", out.width="50%"}
+# checking the loess for each variable in order to decide for lsplines
+#distance
+g1 <-ggplot(data= data, aes(y=highly_rated,x= distance))+ geom_smooth(method = "loess", formula = y~x)
+g1
+# star
+g2 <- ggplot(data= data, aes(y=highly_rated,x= stars))+ geom_smooth(method = "loess", formula = y~x)
+g2
+```
+
+
+```{r, include = FALSE}
+# creating the linear probability model with binary variable
+lpm <-lm(highly_rated ~ lspline(stars, c(4)) + lspline(distance,c(0.5,1,3)), data=data)
 summary(lpm)
-summary(lpm, vcov=sandwich)
 data$pred_lpm <- predict(lpm)
 summary(data$pred_lpm)
+
+#since the maximum probability is higher than 1, it is recommended to take logit and probit to predict the values for the data
 ```
 
-```{r include=FALSE}
+
+```{r, include=FALSE}
 # logit coefficients
-library(lspline)
-logit <- glm(highly_rated ~ lspline(stars, c(4)) + distance, data=data, family='binomial'(link = "logit"))
-summary(logit)
-glance(logit)
-#TODO
-# consider change to margins package
-# predicted probabilities 
+logit <- glm(highly_rated ~ lspline(stars, c(4)) + lspline(distance,c(0.5,1,3)), data=data, family='binomial'(link = "logit"))
+
+
+# predicted probabilities
 data$pred_logit <- predict.glm(logit, type="response")
+
 # fitted(logit) == data$pred_logit
 summary(data$pred_logit)
+
+# we used logit regression because it restrict the probability values between zero and 1
+
 # logit marginal differences
-install.packages("mfx")
-library(mfx)
-logit_marg <- logitmfx(formula = highly_rated ~ lspline(stars, c(4)) + distance, data=data, atmean=FALSE)
+logit_marg <- logitmfx(formula = highly_rated ~ lspline(stars, c(4)) + lspline(distance,c(0.5,1,3)), data=data, atmean=FALSE)
+
 ```
 
-```{r include=FALSE}
+
+```{r, include=FALSE}
 # probit coefficients
-probit <- glm(highly_rated ~ lspline(stars, c(4)) + distance, data=data, family=binomial(link="probit"))
-# predicted probabilities 
-data$pred_probit<- predict.glm(probit, type="response") 
+probit <- glm(highly_rated ~ lspline(stars, c(4)) + lspline(distance,c(0.5,1,3)), data=data, family=binomial(link="probit"))
+# predicted probabilities
+data$pred_probit<- predict.glm(probit, type="response")
 summary(data$pred_probit)
 # probit marginal differences
-probit_marg <- probitmfx(formula = highly_rated ~ lspline(stars, c(4)) + distance, data=data, atmean=F)
+probit_marg <- probitmfx(formula = highly_rated ~ lspline(stars, c(4)) + lspline(distance,c(0.5,1,3)), data=data, atmean=F)
+
+
 ```
 
-```{r echo=FALSE}
+
+# Exhibit 3
+```{r, echo=FALSE}
 cm <- c('(Intercept)' = 'Constant')
-msummary(list(lpm, logit, logit_marg, probit, probit_marg),
+Datatable <- msummary(list(lpm, logit, logit_marg, probit, probit_marg),
          fmt="%.3f",
          gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC|R2|PseudoR2',
          stars=c('*' = .05, '**' = .01),
-         coef_rename = cm,
-         coef_omit = 'as.factor(country)*'
-         
-)
+          coef_rename = c("(Intercept)" = "Intercept",
+                   "lspline(stars, c(4))1" = "stars (1-4)",
+                   "lspline(stars, c(4))2" = "stars (>=4)",
+                   "lspline(distance, c(0.5, 1, 3))1" = "distance (>=0.5)",
+                   "lspline(distance, c(0.5, 1, 3))2" = "distance (>0.5,<=1)",
+                   "lspline(distance, c(0.5, 1, 3))3" = "distance (>1, =<3)",
+                   "lspline(distance, c(0.5, 1, 3))4" = "distance (>3)"),
+         coef_omit = 'as.factor(country)*',
+         title = "Regression Model Summary") %>%
+  kableExtra::kable_styling(latex_options = "hold_position")
+Datatable
+
+
 ```
 
-```{r echo=FALSE}
-# adding pseudo R2 (not work for mfx)
 
-ur.model <- probit
-llur <- logLik(ur.model)
-
-r.model <- glm(highly_rated ~ 1,binomial(link = "probit"), data = data )
-luro <- logLik(r.model)
-
-pr2 <- 1- llur/luro 
-
-# glance_custom.glm <- function(x) data.frame(`PseudoR2` = pR2(x)["McFadden"])
-# cm <- c('(Intercept)' = 'Constant')
-# msummary(list(lpm, logit, probit),
-#          fmt="%.3f",
-#          gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC',
-#          stars=c('*' = .05, '**' = .01),
-#          coef_rename = cm
-)
-```
-
-```{r echo=FALSE}
+# Exhibit 4
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 g5 <- ggplot(data = data) +
-  geom_line(aes(x=pred_lpm, y=pred_probit, color="Probit"), size=0.5,  shape=16) +
-  geom_line(aes(x=pred_lpm, y=pred_logit,  color="Logit"), size=0.5,  shape=16) +
+  geom_smooth(aes(x=pred_lpm, y=pred_probit, color="Probit"), size=0.5,  shape=16) +
+  geom_smooth(aes(x=pred_lpm, y=pred_logit,  color="Logit"), size=0.5,  shape=16) +
   geom_line(aes(x=pred_lpm, y=pred_lpm,    color="45 Degree line"), size=0.5) +
   labs(x = "Predicted probability of Highly Rated (LPM)", y="Predicted probability")+
   scale_y_continuous(expand = c(0.00,0.0), limits = c(0,1), breaks = seq(0,1,0.2)) +
@@ -150,27 +170,8 @@ g5 <- ggplot(data = data) +
   theme_light()+
   theme(legend.position=c(0.55,0.08),
         legend.direction = "horizontal",
-        legend.text = element_text(size = 7))
+        legend.text = element_text(size = 7))+
+  ggtitle("Predicted Probability Comparison")
+ 
 g5
 ```
-
-```{r}
-#distance
-g1 <- ggplot(data = data, aes(x=distance, y=highly_rated)) +
-  geom_smooth(method="loess", color="3a5e8cFF") +
-  scale_y_continuous(expand = c(0.01,0.01),limits = c(0,1), breaks = seq(0,1,0.2), labels = scales::percent) +
-  labs(x = "Distance",y = "Probability of Highly Rated") +
-  theme_light() 
-g1
-```
-
-```{r}
-#stars
-g1 <- ggplot(data = data, aes(x=stars, y=highly_rated)) +
-  geom_smooth(method="loess", color="3a5e8cFF") +
-  scale_y_continuous(expand = c(0.01,0.01),limits = c(0,1), breaks = seq(0,1,0.2), labels = scales::percent) +
-  labs(x = "Stars",y = "Probability of Highly Rated") +
-  theme_light() 
-g1
-```
-
